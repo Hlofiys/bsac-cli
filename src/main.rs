@@ -1,10 +1,13 @@
 use chrono::{Datelike, Local, Weekday};
 use colored::Colorize;
 use inquire::{error::InquireError, DateSelect, Select, Text};
-use openapi;
-use openapi::models::WorkTypeEnum;
+use bsac_api_client;
+use bsac_api_client::models::WorkTypeEnum;
 use serde_derive::{Deserialize, Serialize};
 use std::io::{self, BufWriter, Stdout, Write};
+use bsac_api_client::apis::configuration::Configuration;
+use bsac_api_client::apis::groups_api::get_groups;
+use bsac_api_client::apis::schedules_api::get_schedule_for_date;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 struct AppConfig {
@@ -84,8 +87,8 @@ fn print_schedule(
 
 #[tokio::main]
 async fn main() {
-    let conf: openapi::apis::configuration::Configuration =
-        openapi::apis::configuration::Configuration {
+    let conf: Configuration =
+        Configuration {
             base_path: "https://bsac.hlofiys.xyz".to_owned(),
             ..Default::default()
         };
@@ -95,7 +98,7 @@ async fn main() {
         let mut user_group_id_found: bool = false;
         let sex: u8;
         let sub_group: u8;
-        let groups = openapi::apis::groups_api::get_groups(&conf).await;
+        let groups = get_groups(&conf).await;
         if groups.is_err() {
             panic!("{:?}", groups.as_ref().unwrap_err());
         }
@@ -162,7 +165,7 @@ async fn main() {
         .prompt();
 
     let date = vec![date.unwrap().to_string()];
-    let schedules = openapi::apis::schedules_api::get_schedule_for_date(
+    let schedules = get_schedule_for_date(
         &conf,
         cfg.group_id,
         Option::from(date),
