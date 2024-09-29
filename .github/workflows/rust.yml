@@ -19,7 +19,6 @@ jobs:
     - name: Build
       run: cargo build --release
     - uses: actions/upload-artifact@v4
-    - name: Upload artifact
       with:
           name: bsac-cli
           path: target/release/bsac-cli
