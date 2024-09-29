@@ -1,19 +1,32 @@
-use chrono::{Datelike, Local, Weekday};
-use colored::Colorize;
-use inquire::{error::InquireError, DateSelect, Select, Text};
-use bsac_api_client;
-use bsac_api_client::models::WorkTypeEnum;
-use serde_derive::{Deserialize, Serialize};
-use std::io::{self, BufWriter, Stdout, Write};
 use bsac_api_client::apis::configuration::Configuration;
 use bsac_api_client::apis::groups_api::get_groups;
 use bsac_api_client::apis::schedules_api::get_schedule_for_date;
+use bsac_api_client::models::WorkTypeEnum;
+use chrono::{Datelike, Local, Weekday};
+use colored::Colorize;
+use inquire::{error::InquireError, DateSelect, Select, Text};
+use serde_derive::{Deserialize, Serialize};
+use std::io::{self, BufWriter, Stdout, Write};
 
-#[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize, Clone, Copy)]
 struct AppConfig {
     sex: u8,
     sub_group: u8,
     group_id: i32,
+}
+
+struct PrintSchedule<'a> {
+    cfg: &'a AppConfig,
+    handle: &'a mut BufWriter<Stdout>,
+    schedule_type: ScheduleType,
+    lesson_id: i32,
+    lesson_number: i32,
+    sub_lesson_number: i32,
+    sub_group_number: i32,
+    lesson_name: &'a String,
+    teacher_fio: &'a String,
+    cabinet: i32,
+    work_type: Option<WorkTypeEnum>,
 }
 
 enum ScheduleType {
@@ -22,46 +35,39 @@ enum ScheduleType {
     Default,
 }
 
-fn print_schedule(
-    cfg: &AppConfig,
-    mut handle: &mut BufWriter<Stdout>,
-    schedule_type: ScheduleType,
-    lesson_id: i32,
-    lesson_number: i32,
-    sub_lesson_number: i32,
-    sub_group_number: i32,
-    lesson_name: &String,
-    teacher_fio: &String,
-    cabinet: i32,
-    work_type: Option<WorkTypeEnum>,
-) {
-    let mut cabinet = cabinet.to_string();
-    if lesson_id != 5 && sub_group_number != 0 && sub_group_number != cfg.sub_group as i32 {
-        return;
-    } else if lesson_id == 5 && sub_group_number != 0 && sub_group_number != cfg.sex as i32 {
+fn print_schedule(print_schedule: &mut PrintSchedule) {
+    let mut cabinet = print_schedule.cabinet.to_string();
+    if print_schedule.lesson_id != 5
+        && print_schedule.sub_group_number != 0
+        && print_schedule.sub_group_number != print_schedule.cfg.sub_group as i32
+    {
         return;
     }
-    if lesson_id == 5 {
+    if print_schedule.lesson_id == 5
+        && print_schedule.sub_group_number != 0
+        && print_schedule.sub_group_number != print_schedule.cfg.sex as i32
+    {
+        return;
+    }
+    if print_schedule.lesson_id == 5 {
         cabinet = "Спортзал".parse().unwrap()
     }
-    let hours: &str;
-    match sub_lesson_number {
-        0 => hours = "",
-        1 => hours = "(первый час) ",
-        2 => hours = "(второй час) ",
-        _ => hours = "",
-    }
+    let hours = match print_schedule.sub_lesson_number {
+        0 => "",
+        1 => "(первый час) ",
+        2 => "(второй час) ",
+        _ => "",
+    };
 
-    let schedule_type_string: &str;
-    match schedule_type {
-        ScheduleType::Add => schedule_type_string = "Доставленная ",
-        ScheduleType::Move => schedule_type_string = "Перенесённая ",
-        ScheduleType::Default => schedule_type_string = "",
-    }
+    let schedule_type_string = match print_schedule.schedule_type {
+        ScheduleType::Add => "Доставленная ",
+        ScheduleType::Move => "Перенесённая ",
+        ScheduleType::Default => "",
+    };
 
     let mut work_type_string: &str = "Лекция ";
-    if work_type.is_some() {
-        match work_type.unwrap() {
+    if print_schedule.work_type.is_some() {
+        match print_schedule.work_type.unwrap() {
             WorkTypeEnum::Laboratory => work_type_string = "Лабораторная ",
             WorkTypeEnum::Practical => work_type_string = "Практическая ",
             WorkTypeEnum::Okr => work_type_string = "Окр ",
@@ -69,16 +75,16 @@ fn print_schedule(
         }
     }
     writeln!(
-        &mut handle,
+        &mut print_schedule.handle,
         "{} {}{}: {} \n  {}{} \n  {}: {} \n  {}: {} \n",
-        lesson_number.to_string().blue(),
+        print_schedule.lesson_number.to_string().blue(),
         "пара".blue(),
         hours.magenta(),
-        lesson_name.green(),
+        print_schedule.lesson_name.green(),
         schedule_type_string.cyan(),
-        work_type_string.white(),
+        work_type_string.green(),
         "Преподаватель".blue(),
-        teacher_fio.cyan(),
+        print_schedule.teacher_fio.cyan(),
         "Кабинет".blue(),
         cabinet.yellow(),
     )
@@ -87,17 +93,14 @@ fn print_schedule(
 
 #[tokio::main]
 async fn main() {
-    let conf: Configuration =
-        Configuration {
-            base_path: "https://bsac.hlofiys.xyz".to_owned(),
-            ..Default::default()
-        };
+    let conf: Configuration = Configuration {
+        base_path: "https://bsac.hlofiys.xyz".to_owned(),
+        ..Default::default()
+    };
     let mut cfg: AppConfig = confy::load("rust-bsac-cli", None).unwrap();
     if cfg.group_id == 0 {
         let mut user_group_id: i32 = 0;
         let mut user_group_id_found: bool = false;
-        let sex: u8;
-        let sub_group: u8;
         let groups = get_groups(&conf).await;
         if groups.is_err() {
             panic!("{:?}", groups.as_ref().unwrap_err());
@@ -128,18 +131,18 @@ async fn main() {
         if ans.is_err() {
             panic!("{}", ans.as_ref().unwrap_err());
         }
-        if ans.unwrap() == "Девушка" {
-            sex = 2;
-        } else {
-            sex = 1;
-        }
+        let sex = match ans.unwrap() {
+            "Девушка" => 2,
+            "Парень" => 1,
+            _ => 0,
+        };
 
         let options: Vec<u8> = vec![1, 2];
         let ans: Result<u8, InquireError> = Select::new("Подгруппа?", options).prompt();
         if ans.is_err() {
             panic!("{}", ans.as_ref().unwrap_err());
         }
-        sub_group = ans.unwrap();
+        let sub_group = ans.unwrap();
 
         cfg = AppConfig {
             sex,
@@ -147,7 +150,7 @@ async fn main() {
             group_id: user_group_id,
         };
 
-        confy::store("rust-bsac-cli", None, &cfg).unwrap();
+        confy::store("rust-bsac-cli", None, cfg).unwrap();
     }
     let stdout = io::stdout(); // get the global stdout entity
     let mut handle = BufWriter::new(stdout); // optional: wrap that handle in a buffer
@@ -165,12 +168,7 @@ async fn main() {
         .prompt();
 
     let date = vec![date.unwrap().to_string()];
-    let schedules = get_schedule_for_date(
-        &conf,
-        cfg.group_id,
-        Option::from(date),
-    )
-    .await;
+    let schedules = get_schedule_for_date(&conf, cfg.group_id, Option::from(date)).await;
     match schedules {
         Ok(schedules) => {
             // Достаем расписание нашей группы и клонируем временную переменную
@@ -179,20 +177,20 @@ async fn main() {
             let group_schedules_data = schedules_data.schedules.as_ref().unwrap().as_ref().unwrap();
             for schedule in group_schedules_data {
                 if schedule.schedule_add.is_some() {
-                    let work_type: Option<WorkTypeEnum> = None;
+                    let mut work_type: Option<WorkTypeEnum> = None;
                     if schedule.work.is_some() {
-                        schedule.work.as_ref().unwrap().work_type;
+                        work_type = schedule.work.as_ref().unwrap().work_type;
                     }
                     let schedule = schedule.schedule_add.as_ref().unwrap();
-                    print_schedule(
-                        &cfg,
-                        &mut handle,
-                        ScheduleType::Add,
-                        schedule.lesson_id.unwrap(),
-                        schedule.to_lesson_number.unwrap(),
-                        schedule.to_sub_lesson_number.unwrap(),
-                        schedule.to_sub_group.unwrap(),
-                        schedule
+                    print_schedule(&mut PrintSchedule {
+                        cfg: &cfg,
+                        handle: &mut handle,
+                        schedule_type: ScheduleType::Add,
+                        lesson_id: schedule.lesson_id.unwrap(),
+                        lesson_number: schedule.to_lesson_number.unwrap(),
+                        sub_lesson_number: schedule.to_sub_lesson_number.unwrap(),
+                        sub_group_number: schedule.to_sub_group.unwrap(),
+                        lesson_name: schedule
                             .lesson
                             .as_ref()
                             .unwrap()
@@ -201,7 +199,7 @@ async fn main() {
                             .unwrap()
                             .as_ref()
                             .unwrap(),
-                        schedule
+                        teacher_fio: schedule
                             .teacher
                             .as_ref()
                             .unwrap()
@@ -210,27 +208,27 @@ async fn main() {
                             .unwrap()
                             .as_ref()
                             .unwrap(),
-                        schedule.cabinet.unwrap(),
+                        cabinet: schedule.cabinet.unwrap(),
                         work_type,
-                    )
+                    })
                 }
 
                 if schedule.schedule_move.is_some() {
-                    let work_type: Option<WorkTypeEnum> = None;
+                    let mut work_type: Option<WorkTypeEnum> = None;
                     if schedule.work.is_some() {
-                        schedule.work.as_ref().unwrap().work_type;
+                        work_type = schedule.work.as_ref().unwrap().work_type;
                     }
                     let schedule = schedule.schedule_move.as_ref().unwrap();
                     let from_lesson_schedule = schedule.from_lesson_schedule.as_ref().unwrap();
-                    print_schedule(
-                        &cfg,
-                        &mut handle,
-                        ScheduleType::Move,
-                        from_lesson_schedule.lesson_id.unwrap(),
-                        schedule.to_lesson_number.unwrap(),
-                        schedule.to_sub_lesson_number.unwrap(),
-                        from_lesson_schedule.sub_group.unwrap(),
-                        from_lesson_schedule
+                    print_schedule(&mut PrintSchedule {
+                        cfg: &cfg,
+                        handle: &mut handle,
+                        schedule_type: ScheduleType::Move,
+                        lesson_id: from_lesson_schedule.lesson_id.unwrap(),
+                        lesson_number: schedule.to_lesson_number.unwrap(),
+                        sub_lesson_number: schedule.to_sub_lesson_number.unwrap(),
+                        sub_group_number: from_lesson_schedule.sub_group.unwrap(),
+                        lesson_name: from_lesson_schedule
                             .lesson
                             .as_ref()
                             .unwrap()
@@ -239,7 +237,7 @@ async fn main() {
                             .unwrap()
                             .as_ref()
                             .unwrap(),
-                        from_lesson_schedule
+                        teacher_fio: from_lesson_schedule
                             .teacher
                             .as_ref()
                             .unwrap()
@@ -248,26 +246,26 @@ async fn main() {
                             .unwrap()
                             .as_ref()
                             .unwrap(),
-                        from_lesson_schedule.cabinet.unwrap(),
+                        cabinet: from_lesson_schedule.cabinet.unwrap(),
                         work_type,
-                    )
+                    })
                 }
 
                 if schedule.lesson_schedule.is_some() {
-                    let work_type: Option<WorkTypeEnum> = None;
+                    let mut work_type: Option<WorkTypeEnum> = None;
                     if schedule.work.is_some() {
-                        schedule.work.as_ref().unwrap().work_type;
+                        work_type = schedule.work.as_ref().unwrap().work_type;
                     }
                     let schedule = schedule.lesson_schedule.as_ref().unwrap();
-                    print_schedule(
-                        &cfg,
-                        &mut handle,
-                        ScheduleType::Default,
-                        schedule.lesson_id.unwrap(),
-                        schedule.lesson_number.unwrap(),
-                        schedule.sub_number.unwrap(),
-                        schedule.sub_group.unwrap(),
-                        schedule
+                    print_schedule(&mut PrintSchedule {
+                        cfg: &cfg,
+                        handle: &mut handle,
+                        schedule_type: ScheduleType::Default,
+                        lesson_id: schedule.lesson_id.unwrap(),
+                        lesson_number: schedule.lesson_number.unwrap(),
+                        sub_lesson_number: schedule.sub_number.unwrap(),
+                        sub_group_number: schedule.sub_group.unwrap(),
+                        lesson_name: schedule
                             .lesson
                             .as_ref()
                             .unwrap()
@@ -276,7 +274,7 @@ async fn main() {
                             .unwrap()
                             .as_ref()
                             .unwrap(),
-                        schedule
+                        teacher_fio: schedule
                             .teacher
                             .as_ref()
                             .unwrap()
@@ -285,9 +283,9 @@ async fn main() {
                             .unwrap()
                             .as_ref()
                             .unwrap(),
-                        schedule.cabinet.unwrap(),
+                        cabinet: schedule.cabinet.unwrap(),
                         work_type,
-                    )
+                    })
                 }
             }
         }
