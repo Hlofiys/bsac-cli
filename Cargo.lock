@@ -80,6 +80,8 @@ checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
 [[package]]
 name = "bsac-api-client"
 version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1752fd898cdb5e2b4a7c635171a937bf46596e9fa0c5880aeaf9d3fbdf2f5039"
 dependencies = [
  "reqwest",
  "serde",
