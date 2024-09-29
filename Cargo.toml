@@ -5,6 +5,7 @@ authors = ["Hlofiys"]
 description = "Simple cli app to retrive colege timetable from api"
 license = "GNU GPLv3"
 edition = "2021"
+repository = "https://github.com/Hlofiys/bsac-cli"
 
 [dependencies]
 bsac-api-client = "1.0.0"
