@@ -3,7 +3,7 @@ name = "bsac-cli"
 version = "0.0.1"
 authors = ["Hlofiys"]
 description = "Simple cli app to retrive colege timetable from api"
-license = "GNU GPLv3"
+license = "GPL-3.0-only"
 edition = "2021"
 repository = "https://github.com/Hlofiys/bsac-cli"
 
