@@ -1,0 +1,16 @@
+[package]
+name = "rust-bsac-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openapi = { path = "./bsac-client" }
+tokio = { version = "1", features = ["full"] }
+tokio-macros = "=2.4.0"
+clap = {version = "4.5.18", features = ["cargo"]}
+colored = "2.1.0"
+confy = "0.6.1"
+serde_derive = "1.0.210"
+serde = "1.0.210"
+inquire = { version = "0.7.5", features = ["chrono", "date"] }
+chrono = "0.4.38"
