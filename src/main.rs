@@ -91,6 +91,34 @@ fn print_schedule(print_schedule: &mut PrintSchedule) {
     .expect("Error");
 }
 
+fn print_practice(
+    mut handle: &mut BufWriter<Stdout>,
+    name: &String,
+    start_time: &mut String,
+    end_time: &str,
+    teacher_fio: Option<&String>,
+    cabinet: i32,
+) {
+    start_time.push('-');
+    start_time.push_str(end_time);
+    let mut fio: String = "".to_string();
+    if teacher_fio.is_some() {
+        fio = "\n   Преподаватель: ".to_string();
+        fio.push_str(teacher_fio.unwrap());
+    }
+    writeln!(
+        &mut handle,
+        "{}\n  {}: {}{}\n  {}: {}\n",
+        start_time.blue(),
+        "Практика".blue(),
+        name.green(),
+        fio.cyan(),
+        "Кабинет".blue(),
+        cabinet.to_string().yellow(),
+    )
+    .expect("Error");
+}
+
 #[tokio::main]
 async fn main() {
     let conf: Configuration = Configuration {
@@ -175,7 +203,34 @@ async fn main() {
             let schedules_data = schedules.data.unwrap().unwrap().first().unwrap().clone();
             // Достаем расписание на день
             let group_schedules_data = schedules_data.schedules.as_ref().unwrap().as_ref().unwrap();
-            //TODO: СДЕЛАТЬ ВЫВОД ПРАКТИКИ И ЭКЗАМЕНОВ
+            if schedules_data.practice.is_some() {
+                // Если есть практика - выводим
+                let practice = schedules_data.practice.unwrap();
+                let mut teacher_fio: Option<&String> = None;
+                if practice.teacher.is_some() {
+                    teacher_fio = Some(
+                        practice
+                            .teacher
+                            .as_ref()
+                            .unwrap()
+                            .fio
+                            .as_ref()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap(),
+                    );
+                }
+                print_practice(
+                    &mut handle,
+                    practice.name.unwrap().as_ref().unwrap(),
+                    &mut practice.start_time.unwrap(),
+                    &practice.end_time.unwrap(),
+                    teacher_fio,
+                    practice.cabinet.unwrap(),
+                );
+                return;
+            }
+            // Иначе выводим расписание на день
             for schedule in group_schedules_data {
                 if schedule.schedule_add.is_some() {
                     let mut work_type: Option<WorkTypeEnum> = None;
@@ -211,7 +266,8 @@ async fn main() {
                             .unwrap(),
                         cabinet: schedule.cabinet.unwrap(),
                         work_type,
-                    })
+                    });
+                    continue;
                 }
 
                 if schedule.schedule_move.is_some() {
@@ -249,7 +305,8 @@ async fn main() {
                             .unwrap(),
                         cabinet: from_lesson_schedule.cabinet.unwrap(),
                         work_type,
-                    })
+                    });
+                    continue;
                 }
 
                 if schedule.lesson_schedule.is_some() {
@@ -286,7 +343,8 @@ async fn main() {
                             .unwrap(),
                         cabinet: schedule.cabinet.unwrap(),
                         work_type,
-                    })
+                    });
+                    continue;
                 }
             }
         }
