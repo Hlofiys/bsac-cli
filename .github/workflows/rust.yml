@@ -18,24 +18,21 @@ jobs:
         include:
           - build: linux
             os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
             artifact_path: bsac-cli
 
           - build: macos
             os: macos-latest
-            target: x86_64-apple-darwin
             artifact_path: bsac-cli
 
           - build: windows-gnu
             os: windows-latest
-            target: x86_64-pc-windows-gnu
             artifact_path: bsac-cli.exe
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install stable --profile minimal --no-self-update
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release --verbose --target ${{ matrix.target }}
+        run: cargo build --release --verbose
       - uses: actions/upload-artifact@v4
         with:
           name: bsac-cli
