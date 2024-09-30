@@ -1,6 +1,6 @@
 use bsac_api_client::{apis, models};
 use chrono::{Datelike, Local, Weekday};
-use clap::{command, Arg, ArgMatches};
+use clap::{command, Arg, ArgAction};
 use colored::Colorize;
 use inquire::{error::InquireError, Confirm, DateSelect, Select, Text};
 use serde_derive::{Deserialize, Serialize};
@@ -39,8 +39,11 @@ fn find_group(
         models::GroupListServiceResponse,
         apis::Error<apis::groups_api::GetGroupsError>,
     >,
+    mut group_name: Option<String>,
 ) -> Option<i32> {
-    let group_name = Text::new("Твоя группа?").prompt().unwrap();
+    if group_name.is_none() {
+        group_name = Option::from(Text::new("Твоя группа?").prompt().unwrap());
+    }
     let groups_data = groups
         .as_ref()
         .unwrap()
@@ -50,7 +53,7 @@ fn find_group(
         .as_ref()
         .unwrap();
     for group in groups_data {
-        if group.group_number.as_ref().unwrap().as_ref().unwrap() == &group_name {
+        if group.group_number.as_ref().unwrap().as_ref().unwrap() == group_name.as_ref().unwrap() {
             return group.id;
         };
     }
@@ -58,16 +61,15 @@ fn find_group(
 }
 
 async fn find_group_from_arg(
-    group_arg: &ArgMatches,
+    group_name_arg: &Option<&String>,
     conf: &apis::configuration::Configuration,
 ) -> Option<i32> {
-    let group_name_arg = group_arg.get_one::<String>("group");
     if group_name_arg.is_some() {
         let groups = apis::groups_api::get_groups(conf).await;
         if groups.is_err() {
             panic!("{:?}", groups.as_ref().unwrap_err());
         }
-        let group_id_found = find_group(&groups);
+        let group_id_found = find_group(&groups, Option::from(group_name_arg.unwrap().clone()));
         if group_id_found.is_none() {
             eprintln!("Группа не найдена");
             return None;
@@ -177,7 +179,7 @@ async fn schedule(cfg: &AppConfig, conf: &apis::configuration::Configuration, gr
 
     let date = vec![date.unwrap().to_string()];
     let schedules =
-        apis::schedules_api::get_schedule_for_date(conf, cfg.group_id, Option::from(date)).await;
+        apis::schedules_api::get_schedule_for_date(conf, *group_id, Option::from(date)).await;
     match schedules {
         Ok(schedules) => {
             let stdout = io::stdout(); // get the global stdout entity
@@ -211,7 +213,6 @@ async fn schedule(cfg: &AppConfig, conf: &apis::configuration::Configuration, gr
                     teacher_fio,
                     practice.cabinet.unwrap(),
                 );
-                return;
             } else if !schedules_data
                 .exam
                 .as_ref()
@@ -392,7 +393,7 @@ async fn ask_config(conf: &apis::configuration::Configuration) -> AppConfig {
         panic!("{:?}", groups.as_ref().unwrap_err());
     }
     while group_id.is_none() {
-        group_id = find_group(&groups);
+        group_id = find_group(&groups, None);
         if group_id.is_none() {
             eprintln!("Группа не найдена");
         }
@@ -437,16 +438,30 @@ async fn main() {
                 .required(false)
                 .help("Укажите номер группы чтобы посмотреть ее расписание вместо вашей группы"),
         )
+        .arg(
+            Arg::new("reset")
+            .short('r')
+            .long("reset")
+            .action(ArgAction::SetTrue)
+            .help("Укажите флаг чтобы сбросить конфиг и заполнить его заново")
+        )
         .get_matches();
     let conf: apis::configuration::Configuration = apis::configuration::Configuration {
         base_path: "https://bsac.hlofiys.xyz".to_owned(),
         ..Default::default()
     };
     let mut cfg: AppConfig = confy::load("rust-bsac-cli", None).unwrap();
-    if !cfg.set {
+    if !cfg.set || matches.get_flag("reset") {
         cfg = ask_config(&conf).await;
     }
-    let mut group_id = find_group_from_arg(&matches, &conf).await;
+    let group_name_arg = matches.get_one::<String>("group");
+    let mut group_id: Option<i32> = None;
+    if group_name_arg.is_some() {
+        group_id = find_group_from_arg(&group_name_arg, &conf).await;
+        if group_id.is_none() {
+            return;
+        }
+    }
     if group_id.is_none() {
         group_id = Option::from(cfg.group_id);
     }
