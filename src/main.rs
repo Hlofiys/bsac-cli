@@ -175,6 +175,7 @@ async fn main() {
             let schedules_data = schedules.data.unwrap().unwrap().first().unwrap().clone();
             // Достаем расписание на день
             let group_schedules_data = schedules_data.schedules.as_ref().unwrap().as_ref().unwrap();
+            //TODO: СДЕЛАТЬ ВЫВОД ПРАКТИКИ И ЭКЗАМЕНОВ
             for schedule in group_schedules_data {
                 if schedule.schedule_add.is_some() {
                     let mut work_type: Option<WorkTypeEnum> = None;
