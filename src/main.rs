@@ -1,10 +1,12 @@
-use bsac_api_client::{apis, models};
 use chrono::{Datelike, Local, Weekday};
 use clap::{command, Arg, ArgAction};
 use colored::Colorize;
-use inquire::{error::InquireError, Confirm, DateSelect, Select, Text};
+use inquire::{Confirm, DateSelect, Select, Text};
 use serde_derive::{Deserialize, Serialize};
-use std::io::{self, BufWriter, Stdout, Write};
+use std::io::{self, BufWriter, Error, ErrorKind, Stdout, Write};
+use bsac_api::{model, BsacApiClient};
+use bsac_api::model::{Group, GroupListServiceResponse};
+use bsac_api::request::GetGroupsRequest;
 
 #[derive(Default, Debug, Serialize, Deserialize, Clone, Copy)]
 struct AppConfig {
@@ -25,7 +27,7 @@ struct PrintSchedule<'a> {
     lesson_name: &'a String,
     teacher_fio: &'a String,
     cabinet: i32,
-    work_type: Option<models::WorkTypeEnum>,
+    work_type: Option<model::WorkTypeEnum>,
 }
 
 enum ScheduleType {
@@ -34,49 +36,112 @@ enum ScheduleType {
     Default,
 }
 
-fn find_group(
-    groups: &Result<
-        models::GroupListServiceResponse,
-        apis::Error<apis::groups_api::GetGroupsError>,
-    >,
+async fn find_group(
+    client: &BsacApiClient,
+    groups: Option<GroupListServiceResponse>,
     mut group_name: Option<String>,
-) -> Option<i32> {
+) -> Result<i64, Box<dyn std::error::Error>> {
+    let groups_response : GroupListServiceResponse;
+    if groups.is_none() {
+        groups_response = client.get_groups().await?;
+    }
+    else {
+        groups_response = groups.clone().unwrap()
+    }
     if group_name.is_none() {
         group_name = Option::from(Text::new("Твоя группа?").prompt().unwrap());
     }
-    let groups_data = groups
+    let groups_data = groups_response
+        .data
         .as_ref()
-        .unwrap()
+        .unwrap();
+    let mut found_groups: Vec<&Group> = vec![];
+    for group in groups_data {
+        if group
+            .group_number
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .to_uppercase()
+            .contains(&group_name.as_ref().unwrap().to_uppercase())
+        {
+            found_groups.push(group);
+        };
+    }
+    if found_groups.len() == 0 {
+        Err(Box::new(Error::new(
+            ErrorKind::NotFound,
+            "Группа не найдена",
+        )))
+    } else if found_groups.len() == 1 {
+        return Ok(found_groups.first().unwrap().id.unwrap());
+    } else if found_groups.len() > 1 {
+        let mut group_names: Vec<&String> = vec![];
+        for group in found_groups.clone() {
+            group_names.push(group.group_number.as_ref().unwrap().as_ref().unwrap())
+        }
+        let ans = Select::new("Выбери группу из списка", group_names).prompt();
+        let group = Box::pin(find_group(client, groups, Option::from(ans.unwrap().to_string()))).await?;
+        return Ok(group);
+    } else {
+        Err(Box::new(Error::new(ErrorKind::InvalidData, "Ошибка")))
+    }
+}
+
+async fn find_teacher(
+    conf: &apis::configuration::Configuration,
+    teacher: Option<apis::teachers_api::>,
+    mut group_name: Option<String>,
+) -> Result<i32, Box<dyn std::error::Error>> {
+    let groups_response : models::GroupListServiceResponse;
+    if groups.is_none() {
+        groups_response = apis::groups_api::get_groups(conf).await?;
+    }
+    else {
+        groups_response = groups.clone().unwrap()
+    }
+    if group_name.is_none() {
+        group_name = Option::from(Text::new("Твоя группа?").prompt().unwrap());
+    }
+    let groups_data = groups_response
         .data
         .as_ref()
         .unwrap()
         .as_ref()
         .unwrap();
+    let mut found_groups: Vec<&models::Group> = vec![];
     for group in groups_data {
-        if group.group_number.as_ref().unwrap().as_ref().unwrap() == group_name.as_ref().unwrap() {
-            return group.id;
+        if group
+            .group_number
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .to_uppercase()
+            .contains(&group_name.as_ref().unwrap().to_uppercase())
+        {
+            found_groups.push(group);
         };
     }
-    None
-}
-
-async fn find_group_from_arg(
-    group_name_arg: &Option<&String>,
-    conf: &apis::configuration::Configuration,
-) -> Option<i32> {
-    if group_name_arg.is_some() {
-        let groups = apis::groups_api::get_groups(conf).await;
-        if groups.is_err() {
-            panic!("{:?}", groups.as_ref().unwrap_err());
+    if found_groups.len() == 0 {
+        Err(Box::new(Error::new(
+            ErrorKind::NotFound,
+            "Группа не найдена",
+        )))
+    } else if found_groups.len() == 1 {
+        return Ok(found_groups.first().unwrap().id.unwrap());
+    } else if found_groups.len() > 1 {
+        let mut group_names: Vec<&String> = vec![];
+        for group in found_groups.clone() {
+            group_names.push(group.group_number.as_ref().unwrap().as_ref().unwrap())
         }
-        let group_id_found = find_group(&groups, Option::from(group_name_arg.unwrap().clone()));
-        if group_id_found.is_none() {
-            eprintln!("Группа не найдена");
-            return None;
-        }
-        return group_id_found;
+        let ans = Select::new("Выбери группу из списка", group_names).prompt();
+        let group = Box::pin(crate::find_group(conf, groups, Option::from(ans.unwrap().to_string()))).await?;
+        return Ok(group);
+    } else {
+        Err(Box::new(Error::new(ErrorKind::InvalidData, "Ошибка")))
     }
-    None
 }
 
 fn print_schedule(print_schedule: &mut PrintSchedule) {
@@ -111,11 +176,11 @@ fn print_schedule(print_schedule: &mut PrintSchedule) {
 
     let mut work_type_string: &str = "Лекция ";
     if print_schedule.work_type.is_some() {
-        match print_schedule.work_type.unwrap() {
-            models::WorkTypeEnum::Laboratory => work_type_string = "Лабораторная ",
-            models::WorkTypeEnum::Practical => work_type_string = "Практическая ",
-            models::WorkTypeEnum::Okr => work_type_string = "Окр ",
-            models::WorkTypeEnum::DifferentiatedTest => work_type_string = "Дифф. Тестирование ",
+        match print_schedule.work_type.as_ref().unwrap() {
+            model::WorkTypeEnum::Laboratory => work_type_string = "Лабораторная ",
+            model::WorkTypeEnum::Practical => work_type_string = "Практическая ",
+            model::WorkTypeEnum::Okr => work_type_string = "Окр ",
+            model::WorkTypeEnum::DifferentiatedTest => work_type_string = "Дифф. Тестирование ",
         }
     }
     writeln!(
@@ -163,7 +228,7 @@ fn print_practice_exam(
     .expect("Error");
 }
 
-async fn schedule(cfg: &AppConfig, conf: &apis::configuration::Configuration, group_id: &i32) {
+async fn schedule(cfg: &AppConfig, client: BsacApiClient, group_id: i64) {
     let date = DateSelect::new("На какой день показать расписание?")
         .with_starting_date(Local::now().date_naive())
         .with_min_date(Local::now().date_naive())
@@ -177,15 +242,17 @@ async fn schedule(cfg: &AppConfig, conf: &apis::configuration::Configuration, gr
         .with_help_message("Расписание будет показано на выбранный день")
         .prompt();
 
-    let date = vec![date.unwrap().to_string()];
+    let date = vec![date.unwrap()];
     let schedules =
-        apis::schedules_api::get_schedule_for_date(conf, *group_id, Option::from(date)).await;
-    match schedules {
-        Ok(schedules) => {
+        client
+            .get_schedule_for_date(group_id)
+            .dates(date)
+            .await
+            .unwrap();
             let stdout = io::stdout(); // get the global stdout entity
             let mut handle = BufWriter::new(stdout); // optional: wrap that handle in a buffer
                                                      // Достаем расписание нашей группы и клонируем временную переменную
-            let schedules_data = schedules.data.unwrap().unwrap().first().unwrap().clone();
+            let schedules_data = schedules.data.unwrap().first().unwrap().clone();
             // Достаем расписание на день
             let group_schedules_data = schedules_data.schedules.as_ref().unwrap().as_ref().unwrap();
             if schedules_data.practice.is_some() {
@@ -222,11 +289,12 @@ async fn schedule(cfg: &AppConfig, conf: &apis::configuration::Configuration, gr
                 .is_empty()
             {
                 // Если есть экзамены - выводим
-                let exams = schedules_data.exam.unwrap().unwrap();
+                let exams = schedules_data.exam.unwrap();
                 for exam in exams {
+                    exam
                     print_practice_exam(
                         &mut handle,
-                        exam.lesson
+                        exam
                             .as_ref()
                             .unwrap()
                             .name
@@ -253,7 +321,7 @@ async fn schedule(cfg: &AppConfig, conf: &apis::configuration::Configuration, gr
                 // Иначе выводим расписание на день
                 for schedule in group_schedules_data {
                     if schedule.schedule_add.is_some() {
-                        let mut work_type: Option<models::WorkTypeEnum> = None;
+                        let mut work_type: Option<model::WorkTypeEnum> = None;
                         if schedule.work.is_some() {
                             work_type = schedule.work.as_ref().unwrap().work_type;
                         }
@@ -368,10 +436,6 @@ async fn schedule(cfg: &AppConfig, conf: &apis::configuration::Configuration, gr
                     }
                 }
             }
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-        }
     }
 
     let ans = Confirm::new("Запустить заново?")
@@ -386,84 +450,76 @@ async fn schedule(cfg: &AppConfig, conf: &apis::configuration::Configuration, gr
     }
 }
 
-async fn ask_config(conf: &apis::configuration::Configuration) -> AppConfig {
-    let mut group_id: Option<i32> = None;
-    let groups = apis::groups_api::get_groups(conf).await;
-    if groups.is_err() {
-        panic!("{:?}", groups.as_ref().unwrap_err());
-    }
-    while group_id.is_none() {
-        group_id = find_group(&groups, None);
-        if group_id.is_none() {
-            eprintln!("Группа не найдена");
-        }
+async fn ask_config(
+    conf: &apis::configuration::Configuration,
+) -> Result<AppConfig, Box<dyn std::error::Error>> {
+    let group_id;
+    loop {
+        group_id = find_group(conf, None, None).await?;
+        break
     }
 
     let options: Vec<&str> = vec!["Девушка", "Парень"];
-    let ans: Result<&str, InquireError> = Select::new("Твой пол?", options).prompt();
-    if ans.is_err() {
-        panic!("{}", ans.as_ref().unwrap_err());
-    }
-    let sex = match ans.unwrap() {
+    let ans: &str = Select::new("Твой пол?", options).prompt()?;
+    let sex = match ans {
         "Девушка" => 2,
         "Парень" => 1,
         _ => 0,
     };
 
     let options: Vec<u8> = vec![1, 2];
-    let ans: Result<u8, InquireError> = Select::new("Подгруппа?", options).prompt();
-    if ans.is_err() {
-        panic!("{}", ans.as_ref().unwrap_err());
-    }
-    let sub_group = ans.unwrap();
+    let ans: u8 = Select::new("Подгруппа?", options).prompt()?;
 
     let cfg = AppConfig {
         sex,
-        sub_group,
-        group_id: group_id.unwrap(),
+        sub_group: ans,
+        group_id,
         set: true,
     };
 
     confy::store("rust-bsac-cli", None, cfg).unwrap();
-    cfg
+    Ok(cfg)
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = command!() // requires `cargo` feature
         .arg(
             Arg::new("group")
                 .short('g')
                 .long("group")
                 .required(false)
-                .help("Укажите номер группы чтобы посмотреть ее расписание вместо вашей группы"),
+                .help("Посмотреть расписание указанной группы"),
         )
         .arg(
             Arg::new("reset")
-            .short('r')
-            .long("reset")
-            .action(ArgAction::SetTrue)
-            .help("Укажите флаг чтобы сбросить конфиг и заполнить его заново")
+                .short('r')
+                .long("reset")
+                .action(ArgAction::SetTrue)
+                .help("Сбросить конфиг и заполнить его заново"),
+        )
+        .arg(
+            Arg::new("teacher")
+                .short('t')
+                .long("teacher")
+                .required(false)
+                .help("Посмотреть расписание преподавателя"),
         )
         .get_matches();
-    let conf: apis::configuration::Configuration = apis::configuration::Configuration {
-        base_path: "https://bsac.hlofiys.xyz".to_owned(),
-        ..Default::default()
-    };
+    let client = BsacApiClient::new();
     let mut cfg: AppConfig = confy::load("rust-bsac-cli", None).unwrap();
     if !cfg.set || matches.get_flag("reset") {
-        cfg = ask_config(&conf).await;
+        cfg = ask_config(&conf).await?;
     }
     let group_name_arg = matches.get_one::<String>("group");
-    let mut group_id: Option<i32> = None;
-    if group_name_arg.is_some() {
-        group_id = find_group_from_arg(&group_name_arg, &conf).await;
-        if group_id.is_none() {
-            return;
-        }
+    let teacher_name_arg = matches.get_one::<String>("teacher");
+    if teacher_name_arg.is_some() {
+
     }
-    if group_id.is_none() {
-        group_id = Option::from(cfg.group_id);
-    }
-    schedule(&cfg, &conf, &group_id.unwrap()).await;
+    let group_id: i64 = match group_name_arg {
+        Some(..) => find_group(&conf, None, Option::from(group_name_arg.unwrap().clone())).await?,
+        None => cfg.group_id,
+    };
+    schedule(&cfg, &conf, &group_id).await;
+    Ok(())
 }

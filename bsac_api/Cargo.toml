@@ -1,0 +1,22 @@
+[package]
+name = "bsac_api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+httpclient = "0.23.14"
+base64 = "0.22.1"
+futures = "0.3.30"
+rust_decimal_macros = "1.36.0"
+serde_json = "1.0.128"
+chrono = {version = "0.4.38", features = ["serde"]}
+serde = "1.0.210"
+tokio = "1.40.0"
+
+[lib]
+path = "src/lib.rs"
+name = "bsac_api"
+doctest = false
+edition = "2021"
+crate-type = ["rlib"]
+required-features = []
