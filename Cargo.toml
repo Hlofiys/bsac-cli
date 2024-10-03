@@ -8,7 +8,7 @@ edition = "2021"
 repository = "https://github.com/Hlofiys/bsac-cli"
 
 [dependencies]
-bsac_api = {path = "bsac_api"}
+bsac_api = "0.1.0"
 tokio = { version = "1", features = ["full"] }
 tokio-macros = "=2.4.0"
 colored = "2.1.0"

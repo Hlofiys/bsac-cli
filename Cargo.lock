@@ -159,6 +159,8 @@ dependencies = [
 [[package]]
 name = "bsac_api"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffc077ad665583ef463b4fc85a8ae5c6b0e4df6cbda0ac3bb352f7cc5811222d"
 dependencies = [
  "chrono",
  "futures",
