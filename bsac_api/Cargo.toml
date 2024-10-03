@@ -2,6 +2,10 @@
 name = "bsac_api"
 version = "0.1.0"
 edition = "2021"
+authors = ["Hlofiys"]
+description = "Api lib to retrive colege timetable from api"
+license = "GPL-3.0-only"
+repository = "https://github.com/Hlofiys/bsac-cli"
 
 [dependencies]
 httpclient = "0.23.14"
