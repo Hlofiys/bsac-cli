@@ -7,7 +7,7 @@ static SHARED_HTTPCLIENT: OnceLock<Client> = OnceLock::new();
 pub fn default_http_client() -> Client {
     let url = "https://bsac.hlofiys.xyz";
     Client::new()
-        .base_url(&url)
+        .base_url(url)
 }
 /// Use this method if you want to add custom middleware to the httpclient.
 /// It must be called before any requests are made, otherwise it will have no effect.
@@ -32,6 +32,12 @@ pub struct FluentRequest<'a, T> {
 pub struct BsacApiClient {
     client: Cow<'static, Client>,
 }
+impl Default for BsacApiClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BsacApiClient {
     pub fn from_env() -> Self {
         Self {
