@@ -1,9 +1,7 @@
-use serde_json::json;
 use crate::model::*;
 use crate::FluentRequest;
 use serde::{Serialize, Deserialize};
 use httpclient::InMemoryResponseExt;
-use crate::bsac_apiClient;
 /**You should use this struct via [`bsac_apiClient::get_lessons`].
 
 On request success, this will return a [`GroupListServiceResponse`].*/

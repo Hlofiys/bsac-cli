@@ -1,9 +1,9 @@
 #![allow(unused_imports)]
 use bsac_api::model::*;
-use bsac_api::bsac_apiClient;
+use bsac_api::BsacApiClient;
 #[tokio::main]
 async fn main() {
-    let client = bsac_apiClient::from_env();
+    let client = BsacApiClient::from_env();
     let response = client
         .get_schedule_for_teachers()
         .teachers_ids(vec![1])

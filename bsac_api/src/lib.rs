@@ -26,13 +26,13 @@ fn shared_http_client() -> Cow<'static, Client> {
 }
 #[derive(Clone)]
 pub struct FluentRequest<'a, T> {
-    pub(crate) client: &'a bsac_apiClient,
+    pub(crate) client: &'a BsacApiClient,
     pub params: T,
 }
-pub struct bsac_apiClient {
+pub struct BsacApiClient {
     client: Cow<'static, Client>,
 }
-impl bsac_apiClient {
+impl BsacApiClient {
     pub fn from_env() -> Self {
         Self {
             client: shared_http_client(),
@@ -44,7 +44,7 @@ impl bsac_apiClient {
         }
     }
 }
-impl bsac_apiClient {
+impl BsacApiClient {
     ///Gets all exams for group
     pub fn get_group_exams(
         &self,

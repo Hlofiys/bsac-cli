@@ -1,5 +1,5 @@
 use bsac_api::model::{Group, GroupListServiceResponse, Teacher, TeacherListServiceResponse};
-use bsac_api::{bsac_apiClient, model};
+use bsac_api::{model, BsacApiClient};
 use chrono::{Datelike, Local, Weekday};
 use clap::{command, Arg, ArgAction};
 use colored::Colorize;
@@ -15,7 +15,7 @@ struct AppConfig {
     set: bool,
 }
 
-struct PrintSchedule<'a> {
+struct PrintScheduleArgs<'a> {
     cfg: &'a AppConfig,
     handle: &'a mut BufWriter<Stdout>,
     schedule_type: ScheduleType,
@@ -31,6 +31,17 @@ struct PrintSchedule<'a> {
     display_type: &'a DisplayType,
 }
 
+struct PrintPracticeExamArgs<'a> {
+    handle: &'a mut BufWriter<Stdout>,
+    start_time: &'a mut String,
+    name: &'a String,
+    end_time: &'a str,
+    teacher_fio: Option<&'a String>,
+    group_name: Option<&'a String>,
+    cabinet: i64,
+    display_type: &'a DisplayType,
+}
+
 enum ScheduleType {
     Add,
     Move,
@@ -40,21 +51,17 @@ enum ScheduleType {
 enum DisplayType {
     Teacher,
     Group,
-    TeacherAndGroup,
-    None,
 }
 
 async fn find_group(
-    client: &bsac_apiClient,
+    client: &BsacApiClient,
     groups: Option<GroupListServiceResponse>,
     mut group_name: Option<String>,
 ) -> Result<i64, Box<dyn std::error::Error>> {
-    let groups_response: GroupListServiceResponse;
-    if groups.is_none() {
-        groups_response = client.get_groups().await?;
-    } else {
-        groups_response = groups.clone().unwrap()
-    }
+    let groups_response: GroupListServiceResponse = match groups.as_ref() {
+        Some(..) => groups.clone().unwrap(),
+        None => client.get_groups().await?,
+    };
     if group_name.is_none() {
         group_name = Option::from(Text::new("Твоя группа?").prompt().unwrap());
     }
@@ -71,7 +78,7 @@ async fn find_group(
             found_groups.push(group);
         };
     }
-    if found_groups.len() == 0 {
+    if found_groups.is_empty() {
         Err(Box::new(Error::new(
             ErrorKind::NotFound,
             "Группа не найдена",
@@ -97,16 +104,14 @@ async fn find_group(
 }
 
 async fn find_teacher(
-    client: &bsac_apiClient,
+    client: &BsacApiClient,
     teachers: Option<TeacherListServiceResponse>,
     mut teacher_name: Option<String>,
 ) -> Result<i64, Box<dyn std::error::Error>> {
-    let teachers_response: TeacherListServiceResponse;
-    if teachers.is_none() {
-        teachers_response = client.get_teachers().await?;
-    } else {
-        teachers_response = teachers.clone().unwrap()
-    }
+    let teachers_response: TeacherListServiceResponse = match teachers.as_ref() {
+        Some(..) => teachers.clone().unwrap(),
+        None => client.get_teachers().await?,
+    };
     if teacher_name.is_none() {
         teacher_name = Option::from(Text::new("Фамилия преподавателя?").prompt()?);
     }
@@ -123,7 +128,7 @@ async fn find_teacher(
             found_teachers.push(teacher);
         };
     }
-    if found_teachers.len() == 0 {
+    if found_teachers.is_empty() {
         Err(Box::new(Error::new(
             ErrorKind::NotFound,
             "Преподаватель не найдена",
@@ -148,7 +153,7 @@ async fn find_teacher(
     }
 }
 
-fn print_schedule(print_schedule: &mut PrintSchedule) {
+fn print_schedule(print_schedule: &mut PrintScheduleArgs) {
     let mut cabinet = print_schedule.cabinet.to_string();
     if print_schedule.lesson_id != 5
         && print_schedule.sub_group_number != 0
@@ -191,13 +196,13 @@ fn print_schedule(print_schedule: &mut PrintSchedule) {
     let group_teacher_display: String = match print_schedule.display_type {
         DisplayType::Teacher => "Преподаватель: ".to_string() + print_schedule.teacher_fio,
         DisplayType::Group => "Группа: ".to_string() + print_schedule.group_name,
-        DisplayType::TeacherAndGroup => {
-            "Преподаватель: ".to_string()
-                + print_schedule.teacher_fio
-                + "\n  Группа: "
-                + print_schedule.group_name
-        }
-        DisplayType::None => "".to_string(),
+        // DisplayType::TeacherAndGroup => {
+        //     "Преподаватель: ".to_string()
+        //         + print_schedule.teacher_fio
+        //         + "\n  Группа: "
+        //         + print_schedule.group_name
+        // }
+        // DisplayType::None => "".to_string(),
     };
     writeln!(
         &mut print_schedule.handle,
@@ -215,50 +220,42 @@ fn print_schedule(print_schedule: &mut PrintSchedule) {
     .expect("Error");
 }
 
-fn print_practice_exam(
-    mut handle: &mut BufWriter<Stdout>,
-    start_time: &mut String,
-    name: &String,
-    end_time: &str,
-    teacher_fio: Option<&String>,
-    group_name: Option<&String>,
-    cabinet: i64,
-    display_type: &DisplayType,
-) {
-    start_time.push('-');
-    start_time.push_str(end_time);
-    let group_teacher_display: String = match display_type {
+fn print_practice_exam(args: &mut PrintPracticeExamArgs) {
+    args.start_time.push('-');
+    args.start_time.push_str(args.end_time);
+    let group_teacher_display: String = match args.display_type {
         DisplayType::Teacher => {
-            if teacher_fio.is_some() {
-                "\n  Преподаватель: ".to_string() + teacher_fio.unwrap()
+            if args.teacher_fio.is_some() {
+                "\n  Преподаватель: ".to_string() + args.teacher_fio.unwrap()
+            } else {
+                "".to_string()
             }
-            else { "".to_string() }
-        },
-        DisplayType::Group => "\n  Группа: ".to_string() + group_name.unwrap(),
-        DisplayType::TeacherAndGroup => {
-            "\n  Преподаватель: ".to_string()
-                + teacher_fio.unwrap()
-                + "\n  Группа: "
-                + group_name.unwrap()
         }
-        DisplayType::None => "".to_string(),
+        DisplayType::Group => "\n  Группа: ".to_string() + args.group_name.unwrap(),
+        // DisplayType::TeacherAndGroup => {
+        //     "\n  Преподаватель: ".to_string()
+        //         + teacher_fio.unwrap()
+        //         + "\n  Группа: "
+        //         + group_name.unwrap()
+        // }
+        // DisplayType::None => "".to_string(),
     };
     writeln!(
-        &mut handle,
+        &mut args.handle,
         "{}\n  {}: {}{}\n  {}: {}\n",
-        start_time.blue(),
+        args.start_time.blue(),
         "Практика".blue(),
-        name.green(),
+        args.name.green(),
         group_teacher_display,
         "Кабинет".blue(),
-        cabinet.to_string().yellow(),
+        args.cabinet.to_string().yellow(),
     )
     .expect("Error");
 }
 
 async fn schedule(
     cfg: &AppConfig,
-    client: &bsac_apiClient,
+    client: &BsacApiClient,
     group_id: Option<i64>,
     teacher_id: Option<i64>,
 ) {
@@ -307,30 +304,30 @@ async fn schedule(
         if practice.teacher.is_some() {
             teacher_fio = Option::from(practice.teacher.as_ref().unwrap().fio.as_ref().unwrap());
         }
-        print_practice_exam(
-            &mut handle,
-            &mut practice.start_time.unwrap(),
-            practice.name.as_ref().unwrap(),
-            &practice.end_time.unwrap(),
+        print_practice_exam(&mut PrintPracticeExamArgs {
+            handle: &mut handle,
+            start_time: &mut practice.start_time.unwrap(),
+            name: practice.name.as_ref().unwrap(),
+            end_time: &practice.end_time.unwrap(),
             teacher_fio,
-            practice.group.as_ref().unwrap().group_number.as_ref(),
-            practice.cabinet.unwrap(),
-            &display_type,
-        );
+            group_name: practice.group.as_ref().unwrap().group_number.as_ref(),
+            cabinet: practice.cabinet.unwrap(),
+            display_type: &display_type,
+        });
     } else if !schedules_data.exam.as_ref().unwrap().is_empty() {
         // Если есть экзамены - выводим
         let exams = schedules_data.exam.unwrap();
         for exam in exams {
-            print_practice_exam(
-                &mut handle,
-                &mut exam.exam_start.unwrap().time().to_string(),
-                exam.lesson.unwrap().name.as_ref().unwrap(),
-                "",
-                exam.teacher.as_ref().unwrap().fio.as_ref(),
-                exam.group.as_ref().unwrap().group_number.as_ref(),
-                exam.cabinet.unwrap(),
-                &display_type,
-            );
+            print_practice_exam(&mut PrintPracticeExamArgs {
+                handle: &mut handle,
+                start_time: &mut exam.exam_start.unwrap().time().to_string(),
+                name: exam.lesson.unwrap().name.as_ref().unwrap(),
+                end_time: "",
+                teacher_fio: exam.teacher.as_ref().unwrap().fio.as_ref(),
+                group_name: exam.group.as_ref().unwrap().group_number.as_ref(),
+                cabinet: exam.cabinet.unwrap(),
+                display_type: &display_type,
+            });
         }
     } else {
         // Иначе выводим расписание на день
@@ -341,7 +338,7 @@ async fn schedule(
                     work_type = schedule.work.as_ref().unwrap().work_type.as_ref();
                 }
                 let schedule = schedule.schedule_add.as_ref().unwrap();
-                print_schedule(&mut PrintSchedule {
+                print_schedule(&mut PrintScheduleArgs {
                     cfg,
                     handle: &mut handle,
                     schedule_type: ScheduleType::Add,
@@ -372,7 +369,7 @@ async fn schedule(
                 }
                 let schedule = schedule.schedule_move.as_ref().unwrap();
                 let from_lesson_schedule = schedule.from_lesson_schedule.as_ref().unwrap();
-                print_schedule(&mut PrintSchedule {
+                print_schedule(&mut PrintScheduleArgs {
                     cfg,
                     handle: &mut handle,
                     schedule_type: ScheduleType::Move,
@@ -414,7 +411,7 @@ async fn schedule(
                     work_type = schedule.work.as_ref().unwrap().work_type.as_ref();
                 }
                 let schedule = schedule.lesson_schedule.as_ref().unwrap();
-                print_schedule(&mut PrintSchedule {
+                print_schedule(&mut PrintScheduleArgs {
                     cfg,
                     handle: &mut handle,
                     schedule_type: ScheduleType::Default,
@@ -453,11 +450,17 @@ async fn schedule(
     }
 }
 
-async fn ask_config(client: &bsac_apiClient) -> Result<AppConfig, Box<dyn std::error::Error>> {
+async fn ask_config(client: &BsacApiClient) -> Result<AppConfig, Box<dyn std::error::Error>> {
     let group_id;
     loop {
-        group_id = find_group(client, None, None).await?;
-        break;
+        let group_id_res = find_group(client, None, None).await;
+        if group_id_res.is_ok() {
+            group_id = group_id_res?;
+            break;
+        }
+        else {
+            eprintln!("Группа не найдена")
+        }
     }
 
     let options: Vec<&str> = vec!["Девушка", "Парень"];
@@ -507,7 +510,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .help("Посмотреть расписание преподавателя"),
         )
         .get_matches();
-    let client = bsac_apiClient::new();
+    let client = BsacApiClient::new();
     let mut cfg: AppConfig = confy::load("rust-bsac-cli", None).unwrap();
     if !cfg.set || matches.get_flag("reset") {
         cfg = ask_config(&client).await?;
