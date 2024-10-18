@@ -1,6 +1,6 @@
 [package]
 name = "bsac-cli"
-version = "1.2.0"
+version = "1.3.0"
 authors = ["Hlofiys"]
 description = "Simple cli app to retrive colege timetable from api"
 license = "GPL-3.0-only"

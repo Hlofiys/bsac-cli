@@ -1,7 +1,7 @@
+use crate::finder;
 use bsac_api::BsacApiClient;
 use inquire::Select;
 use serde_derive::{Deserialize, Serialize};
-use crate::{finder};
 
 #[derive(Default, Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct AppConfig {
@@ -18,8 +18,7 @@ pub async fn ask_config(client: &BsacApiClient) -> Result<AppConfig, Box<dyn std
         if group_id_res.is_ok() {
             group_id = group_id_res?;
             break;
-        }
-        else {
+        } else {
             eprintln!("Группа не найдена")
         }
     }

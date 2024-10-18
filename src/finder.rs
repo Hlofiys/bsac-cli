@@ -1,23 +1,23 @@
-use std::io;
-use std::io::{BufWriter, Error, ErrorKind, Write};
-use bsac_api::{model, BsacApiClient};
+use crate::{config, printer};
 use bsac_api::model::{Group, GroupListServiceResponse, Teacher, TeacherListServiceResponse};
+use bsac_api::{model, BsacApiClient};
 use chrono::{Datelike, Local, Weekday};
 use inquire::{Confirm, DateSelect, Select, Text};
-use crate::{config, printer};
+use std::io;
+use std::io::{BufWriter, Error, ErrorKind, Write};
 
 pub async fn find_group(
     client: &BsacApiClient,
     groups: Option<GroupListServiceResponse>,
     mut group_name: Option<String>,
 ) -> Result<i64, Box<dyn std::error::Error>> {
+    if group_name.is_none() {
+        group_name = Option::from(Text::new("Твоя группа?").prompt().unwrap());
+    }
     let groups_response: GroupListServiceResponse = match groups.as_ref() {
         Some(..) => groups.clone().unwrap(),
         None => client.get_groups().await?,
     };
-    if group_name.is_none() {
-        group_name = Option::from(Text::new("Твоя группа?").prompt().unwrap());
-    }
     let groups_data = groups_response.data.as_ref().unwrap();
     let mut found_groups: Vec<&Group> = vec![];
     for group in groups_data {
@@ -49,7 +49,7 @@ pub async fn find_group(
             groups,
             Option::from(ans.unwrap().to_string()),
         ))
-            .await?;
+        .await?;
         return Ok(group);
     } else {
         Err(Box::new(Error::new(ErrorKind::InvalidData, "Ошибка")))
@@ -61,13 +61,13 @@ pub async fn find_teacher(
     teachers: Option<TeacherListServiceResponse>,
     mut teacher_name: Option<String>,
 ) -> Result<i64, Box<dyn std::error::Error>> {
+    if teacher_name.is_none() {
+        teacher_name = Option::from(Text::new("Фамилия преподавателя?").prompt()?);
+    }
     let teachers_response: TeacherListServiceResponse = match teachers.as_ref() {
         Some(..) => teachers.clone().unwrap(),
         None => client.get_teachers().await?,
     };
-    if teacher_name.is_none() {
-        teacher_name = Option::from(Text::new("Фамилия преподавателя?").prompt()?);
-    }
     let teachers_data = teachers_response.data.as_ref().unwrap();
     let mut found_teachers: Vec<&Teacher> = vec![];
     for teacher in teachers_data {
@@ -99,7 +99,7 @@ pub async fn find_teacher(
             teachers,
             Option::from(ans.unwrap().to_string()),
         ))
-            .await?;
+        .await?;
         return Ok(teacher);
     } else {
         Err(Box::new(Error::new(ErrorKind::InvalidData, "Ошибка")))
@@ -146,7 +146,7 @@ pub async fn find_schedule(
     }
     let stdout = io::stdout(); // get the global stdout entity
     let mut handle = BufWriter::new(stdout); // optional: wrap that handle in a buffer
-    // Достаем расписание нашей группы и клонируем временную переменную
+                                             // Достаем расписание нашей группы и клонируем временную переменную
     let schedules_data = schedules.data.unwrap().first().unwrap().clone();
     // Достаем расписание на день
     let group_schedules_data = schedules_data.schedules.as_ref().unwrap();
